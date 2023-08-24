@@ -222,18 +222,6 @@ class ConvBNReLU(nn.Sequential):
                       dilation=dilation, stride=stride, padding=((stride - 1) + dilation * (kernel_size - 1)) // 2),
             norm_layer(out_channels),
             nn.ReLU6())
-# class DecoderBlock(nn.Module):
-#     def __init__( self,in_channels, skip_channels,out_channels):
-#         super().__init__()
-#         self.conv1 = Conv2dReLU(in_channels + skip_channels,out_channels,kernel_size=3, padding=1,)
-#         self.conv2 = Conv2dReLU(out_channels,out_channels,kernel_size=3,padding=1,)
-#     def forward(self, x, skip=None):
-#         x = F.interpolate(x, scale_factor=2, mode="bilinear",align_corners=True)
-#         if skip is not None:
-#             x = torch.cat([skip,x], dim=1)
-#         x = self.conv1(x)
-#         x = self.conv2(x)
-#         return x
 
 class Channel_Att(nn.Module):
     def __init__(self, channels):
@@ -289,7 +277,7 @@ class AlignedModulev2(nn.Module):
         output = F.grid_sample(input, grid, align_corners=True)
         return output
 
-class DecoderBlock(nn.Module):
+class DecoderBlock(nn.Module):  #Cross-scale Multi-level Feature Fusion Module
     def __init__(self, in_chan, skip_chan,out_chan,reduction_ratio=16):
         super(DecoderBlock, self).__init__()
         self.ca1 = Channel_Att(in_chan)
@@ -316,24 +304,6 @@ class DecoderBlock(nn.Module):
         weight = torch.sigmoid(f_s+f_c)
         x = high*weight + (1-weight)*low
         return x
-# class DecoderBlock(nn.Module):
-#     def __init__( self,in_channels, skip_channels,out_channels, eps=1e-8):
-#         super().__init__()
-#         self.conv1 = Conv2dReLU( skip_channels,out_channels,kernel_size=3, padding=1,)
-#         self.conv = Conv2dReLU(in_channels,skip_channels,kernel_size=1,padding=0)
-#         self.fuse =  AlignedModule(skip_channels,out_channels)
-#         # self.weights = nn.Parameter(torch.ones(2, dtype=torch.float32), requires_grad=True)
-#         # self.eps = eps
-#     def forward(self, x, skip=None):
-#         # print(x.shape,skip.shape)
-#         # x = F.interpolate(x, scale_factor=2, mode="nearest")
-#         # weights = nn.ReLU()(self.weights)
-#         # fuse_weights = weights / (torch.sum(weights, dim=0) + self.eps)
-#         if skip is not None:
-#             x = self.fuse([skip,self.conv(x)])
-#             # x = fuse_weights[0] * skip + fuse_weights[1] * self.conv(x)
-#         x = self.conv1(x)
-#         return x
 
 class ConvBlock(nn.Module):
     def __init__(self, inplanes, outplanes, stride=1, res_conv=False, act_layer=nn.ReLU, groups=1,
@@ -386,7 +356,7 @@ class ConvBlock(nn.Module):
         else:
             return x
 
-class FCUUp(nn.Module):
+class FIMUp(nn.Module):
     """ Transformer patch embeddings -> CNN feature maps
     """
     def __init__(self, inplanes, outplanes,  act_layer=nn.ReLU,
@@ -410,7 +380,7 @@ class FCUUp(nn.Module):
         # x_r = self.act(self.bn(self.conv_project(x)))
         return x
 
-class FCUDown(nn.Module):
+class FIMDown(nn.Module):
     """ CNN feature maps -> Transformer patch embeddings
     """
 
@@ -434,7 +404,7 @@ class FCUDown(nn.Module):
         x = self.act(x)
 
         return x
-# from conformer_unet.conformer import Block as block
+
 class ConvTransBlock(nn.Module):
     """
     Basic module for ConvTransformer, keep feature maps for CNN block and patch embeddings for transformer encoder block
@@ -449,8 +419,8 @@ class ConvTransBlock(nn.Module):
             self.fusion_block = ConvBlock(inplanes=outplanes, outplanes=outplanes, stride=2, res_conv=True, groups=groups)
         else:
             self.fusion_block = ConvBlock(inplanes=outplanes, outplanes=outplanes, groups=groups)
-        self.squeeze_block = FCUDown(inplanes=outplanes // expansion, outplanes=embed_dim)
-        self.expand_block = FCUUp(inplanes=embed_dim, outplanes=outplanes // expansion)
+        self.squeeze_block = FIMDown(inplanes=outplanes // expansion, outplanes=embed_dim)
+        self.expand_block = FIMUp(inplanes=embed_dim, outplanes=outplanes // expansion)
         self.trans_block = Block(
             dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
             drop=drop_rate, attn_drop=attn_drop_rate, drop_path=drop_path_rate,sr_ratio=sr_ratio)
@@ -468,7 +438,7 @@ class ConvTransBlock(nn.Module):
         x = self.fusion_block(x, x_t_r, return_x_2=False)
 
         return x, x_t
-class Conunetv1(nn.Module):
+class TCUNet(nn.Module):
 
     def __init__(self, img_size=512, in_chans=8, num_classes=2, base_channel=32, channel_ratio=2, use_cnn = True,
                  embed_dim=32, depth=[3,4,6,3], num_heads=[1,2,4,8], mlp_ratio=4., qkv_bias=False, qk_scale=None,
